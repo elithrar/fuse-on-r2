@@ -16,6 +16,8 @@
     // $ npx wrangler@latest secret put AWS_ACCESS_KEY_ID
     // $ npx wrangler@latest secret put AWS_SECRET_ACCESS_KEY
     "R2_BUCKET_NAME": "bin",
+    // Unset by default. Set this to only mount a specific prefix within the bucket.
+    "R2_BUCKET_PREFIX": "",
     "R2_ACCOUNT_ID": "d458dbe698b8eef41837f941d73bc5b3",
   },
   "containers": [

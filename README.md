@@ -19,7 +19,9 @@ You'll need to provide your [R2 API credentials](https://developers.cloudflare.c
 3. Ensure Docker is running locally.
 4. `npx wrangler@latest deploy`
 
-You can mount multiple buckets as you wish by updating the Dockerfile or doing it dynamically from within the application in your container. `tigrisfs` does not currently support scoping a mount to a specific prefix.
+You can mount multiple buckets as you wish by updating the Dockerfile or doing it dynamically from within the application in your container.
+
+To mount a bucket with a specific prefix, set `<bucket_name>:<prefix>` when passing it to `tigrisfs` - e.g. `/usr/local/bin/tigrisfs --endpoint "${R2_ENDPOINT}" -f "${BUCKET_NAME}" "$HOME/mnt/r2/${BUCKET_NAME}${PREFIX:+:${PREFIX}}"`
 
 ## Learn More
 

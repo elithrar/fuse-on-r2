@@ -36,7 +36,7 @@ RUN printf '#!/bin/sh\n\
     \n\
     R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"\n\
     echo "Mounting bucket ${BUCKET_NAME}..."\n\
-    /usr/local/bin/tigrisfs --endpoint "${R2_ENDPOINT}" -f "${BUCKET_NAME}" "$HOME/mnt/r2/${BUCKET_NAME}" &\n\
+    /usr/local/bin/tigrisfs --endpoint "${R2_ENDPOINT}" -f "${BUCKET_NAME}" "$HOME/mnt/r2/${BUCKET_NAME}${PREFIX:+:${PREFIX}}" &\n\
     sleep 3\n\
     \n\
     echo "Starting server on :8080"\n\
