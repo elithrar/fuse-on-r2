@@ -101,7 +101,7 @@ Environment variables are passed from the `FUSEDemo` class's `envVars` property 
 
 **No Testing/Linting:**
 - This project has no test framework or linting configured
-- No CI/CD pipelines are set up
+- CI: GitHub Actions workflow is configured (`.github/workflows/`)
 
 **Type Generation:**
 - Run `npm run cf-typegen` after modifying `wrangler.jsonc` to regenerate `worker-configuration.d.ts`

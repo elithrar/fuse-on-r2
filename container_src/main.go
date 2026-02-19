@@ -74,8 +74,8 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	response := FileListResponse{
 		BucketName: bucketName,
 		MountPath:  mountPath,
-		Files:      files,
-		Total:      len(entries),
+		Files:      files,        // preview: at most 10 entries
+		Total:      len(entries), // total count of all entries in the directory
 	}
 
 	data, err := json.Marshal(response)
