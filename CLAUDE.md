@@ -15,7 +15,7 @@ This is a Cloudflare Workers + Containers project that demonstrates FUSE (Filesy
 **Key Components:**
 - `src/index.ts`: Main Worker entry point with Hono routes and `FUSEDemo` class definition
 - `container_src/main.go`: Go HTTP server that runs inside the container
-- `Dockerfile`: Multi-stage build (golang:1.24-alpine -> scratch) for the container image
+- `Dockerfile`: Multi-stage build (golang:1.24-alpine -> alpine:3.21) for the container image
 - `wrangler.jsonc`: Configuration defining container bindings, Durable Object settings, and AWS credentials
 
 **Container Pattern:**
@@ -31,12 +31,14 @@ AWS credentials flow from `wrangler.jsonc` → Worker `Env` → Container `envVa
 envVars = {
   AWS_ACCESS_KEY_ID: this.env.AWS_ACCESS_KEY_ID,
   AWS_SECRET_ACCESS_KEY: this.env.AWS_SECRET_ACCESS_KEY,
-  BUCKET_NAME: this.env.BUCKET_NAME,
+  BUCKET_NAME: this.env.R2_BUCKET_NAME,
+  BUCKET_PREFIX: this.env.R2_BUCKET_PREFIX,
+  R2_ACCOUNT_ID: this.env.R2_ACCOUNT_ID,
 }
 ```
 
 **Current Routes:**
-- `/singleton` - Get a single container instance (uses `getContainer`)
+- `GET /` - List files in the mounted R2 bucket (uses `getContainer`)
 
 ## Common Commands
 
@@ -68,12 +70,12 @@ npm run cf-typegen   # Generate worker-configuration.d.ts types via wrangler typ
 **Environment Variables (wrangler.jsonc):**
 ```jsonc
 "vars": {
-  "AWS_ACCESS_KEY_ID": "...",
-  "AWS_SECRET_ACCESS_KEY": "...",
-  "BUCKET_NAME": "bin"
+  "R2_BUCKET_NAME": "bin",
+  "R2_BUCKET_PREFIX": "",
+  "R2_ACCOUNT_ID": "..."
 }
 ```
-Note: Credentials are currently hardcoded in `wrangler.jsonc`. For production, use Wrangler secrets (`wrangler secret put <NAME>`).
+Note: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` must be set as Wrangler secrets (`wrangler secret put <NAME>`), never in `wrangler.jsonc`.
 
 **Compatibility:**
 - Date: `2025-10-08`
