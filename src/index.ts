@@ -1,4 +1,4 @@
-import { Container, getContainer, getRandom } from "@cloudflare/containers";
+import { Container, getContainer } from "@cloudflare/containers";
 import { Hono } from "hono";
 
 interface Env {
@@ -27,8 +27,13 @@ const app = new Hono<{
 }>();
 
 app.get("/", async (c) => {
-  const container = getContainer(c.env.FUSEDemo);
-  return await container.fetch(c.req.raw);
+  try {
+    const container = getContainer(c.env.FUSEDemo);
+    return await container.fetch(c.req.raw);
+  } catch (err) {
+    console.error("Container fetch failed:", err);
+    return c.json({ error: "Failed to reach container" }, 502);
+  }
 });
 
 export default app;

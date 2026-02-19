@@ -27,6 +27,11 @@ type FileListResponse struct {
 }
 
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	bucketName := os.Getenv("BUCKET_NAME")
 	if bucketName == "" {
 		http.Error(w, "BUCKET_NAME environment variable not set", http.StatusInternalServerError)
@@ -69,15 +74,20 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	response := FileListResponse{
 		BucketName: bucketName,
 		MountPath:  mountPath,
-		Files:      files,
-		Total:      len(entries),
+		Files:      files,        // preview: at most 10 entries
+		Total:      len(entries), // total count of all entries in the directory
+	}
+
+	data, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("Failed to marshal JSON: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Failed to encode JSON: %v", err)
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
+	if _, err := w.Write(data); err != nil {
+		log.Printf("Failed to write response: %v", err)
 	}
 }
 
