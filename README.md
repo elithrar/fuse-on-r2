@@ -1,36 +1,140 @@
-# Cloudflare Containers + R2-backed FUSE mounts
+# Mount R2 in a Cloudflare Container with FUSE
 
-This is a demo app that shows how to mount an R2 bucket into a Cloudflare Container!
+This example mounts an R2 bucket inside a [Cloudflare Container](https://developers.cloudflare.com/containers/) with [tigrisfs](https://github.com/tigrisdata/tigrisfs). The application can then use normal filesystem APIs instead of an S3 client.
 
-1. A Worker as the front-end that proxies to a single container instance
-2. A container with an R2 bucket mounted using [tigrisfs](https://github.com/tigrisdata/tigrisfs) at `$HOME/mnt/r2/<bucket_name`>
-3. A Go application that uses `io/fs` to list files in the mounted R2 bucket and return them as JSON
+It includes:
 
-Mounting object storage buckets as FUSE mounts allows applications to interact with the bucket as if it were a local filesystem: useful if you have apps that don't have native support for object storage (many!) and/or want to simplify operations.
+- A Worker that routes requests to one container instance.
+- A container that mounts R2 at `/root/mnt/r2/<bucket-name>`.
+- A small Go server that returns up to ten entries from the mounted bucket as JSON.
 
-The trade-off is that object storage is not exactly a POSIX compatible filesystem, nor is it local, and so you should not expect native, SSD-like performance. For many apps, this doesn't matter: reading a bunch of shared assets, bootstrapping a agent/sandbox, or providing a way to persist user-state are all common use cases and rarely I/O intensive.
+This pattern is useful for existing applications that expect files, bootstrapping sandboxes with shared assets, and persisting state that does not belong in the container image.
 
-## Deploying it
+## Run it locally
 
-You'll need to provide your [R2 API credentials](https://developers.cloudflare.com/r2/api/tokens/) and Cloudflare account ID to the container.
+You need Node.js 22 or later and a running Docker-compatible engine. Go 1.26 or later is also required to run the Go tests outside the image build.
 
-1. Update `wrangler.jsonc` with the `BUCKET_NAME` and `ACCOUNT_ID` environment variables. These are OK to be public.
-2. Use `npx wrangler@latest secret put AWS_ACCESS_KEY_ID` and `npx wrangler@latest secret put AWS_SECRET_ACCESS_KEY` to set your R2 credentials.
-3. Ensure Docker is running locally.
-4. `npx wrangler@latest deploy`
+Install the dependencies:
 
-You can mount multiple buckets as you wish by updating the Dockerfile or doing it dynamically from within the application in your container.
+```sh
+npm install
+```
 
-To mount a bucket at a specific prefix, set the `R2_BUCKET_PREFIX` environment variable in `wrangler.json` or dynamically when creating a container instance.
+Update these public values in `wrangler.jsonc`:
 
-## Learn More
+```jsonc
+"R2_BUCKET_NAME": "your-bucket-name",
+"R2_ACCOUNT_ID": "your-account-id",
+```
 
-To learn more about Containers, take a look at the following resources:
+Create local R2 credentials:
 
-- [Container Documentation](https://developers.cloudflare.com/containers/) - learn about Containers
-- [Container Class](https://github.com/cloudflare/containers) - learn about the Container helper class
-- Learn more about Container [lifecycles](https://developers.cloudflare.com/containers/platform-details/architecture/)
+```sh
+cp .dev.vars.example .dev.vars
+```
+
+Replace the placeholders in `.dev.vars` with an R2 Access Key ID and Secret Access Key. Use an [R2 API token](https://developers.cloudflare.com/r2/api/tokens/) scoped to only the bucket and permissions this container needs.
+
+Start the Worker and container:
+
+```sh
+npm run dev
+```
+
+The first start builds the image. Once it is ready:
+
+```sh
+curl http://localhost:8787/
+```
+
+The response has this shape:
+
+```json
+{
+  "bucketName": "your-bucket-name",
+  "prefix": "",
+  "mountPath": "/root/mnt/r2/your-bucket-name",
+  "files": [
+    {
+      "name": "example.txt",
+      "isDir": false,
+      "size": 1234
+    }
+  ],
+  "returned": 1,
+  "truncated": false
+}
+```
+
+## Mount a prefix
+
+Set `R2_BUCKET_PREFIX` in `wrangler.jsonc` to expose only one prefix:
+
+```jsonc
+"R2_BUCKET_PREFIX": "assets/models",
+```
+
+tigrisfs receives this as `bucket-name:assets/models`. The mount path stays `/root/mnt/r2/<bucket-name>`.
+
+## Deploy
+
+Set the production secrets:
+
+```sh
+npx wrangler secret put AWS_ACCESS_KEY_ID
+npx wrangler secret put AWS_SECRET_ACCESS_KEY
+```
+
+Then deploy the Worker and image:
+
+```sh
+npm run deploy
+```
+
+Docker must be running when Wrangler builds the image.
+
+The example does not add authentication. Anyone who can reach the deployed Worker can list the mounted directory, so put access controls in front of it before exposing sensitive object names.
+
+## Test
+
+Run the type check and Go tests:
+
+```sh
+npm run check
+```
+
+With `npm run dev` running, exercise the complete Worker-to-container path:
+
+```sh
+npm run test:e2e
+```
+
+To test a deployed Worker instead:
+
+```sh
+E2E_BASE_URL=https://fuse-on-r2.<your-subdomain>.workers.dev npm run test:e2e
+```
+
+The end-to-end check waits up to two minutes for a cold container, verifies `/health`, and validates the file-list response.
+
+## Tradeoffs
+
+R2 is object storage, not a POSIX filesystem. Metadata operations and small random reads require network requests, renames are not atomic filesystem renames, and you should not expect local-SSD latency.
+
+The example limits each response to ten directory entries so a request does not enumerate an entire large bucket. It routes all requests to one named container. Pass a stable instance name to `getContainer()` if your application needs one mount per tenant or workload.
+
+Container filesystems are ephemeral. Only data written through the mounted bucket persists across container restarts.
+
+## How it works
+
+1. `src/index.ts` selects the singleton `FUSEDemo` Durable Object and forwards the request.
+2. The container starts `tigrisfs` with the R2 S3 endpoint and waits until the mount appears in `/proc/mounts`.
+3. The startup process supervises both tigrisfs and the Go server, stopping the container if either exits.
+4. The Go server starts only after the mount is ready and reads the mounted directory with `os.File.ReadDir`.
+5. After ten minutes without activity, the Container helper stops the instance.
+
+See the [Containers documentation](https://developers.cloudflare.com/containers/), [Container class reference](https://developers.cloudflare.com/containers/container-class/), and [R2 FUSE example](https://developers.cloudflare.com/containers/examples/r2-fuse-mount/) for related patterns.
 
 ## License
 
-Apache-2.0 licensed. Copyright 2025, Cloudflare, Inc.
+Apache-2.0. Copyright 2025-2026 Cloudflare, Inc.

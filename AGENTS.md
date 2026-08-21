@@ -4,16 +4,18 @@
 - **Dev**: `npm run dev` - Start local Wrangler dev server on http://localhost:8787
 - **Deploy**: `npm run deploy` - Deploy to Cloudflare Workers
 - **Type Generation**: `npm run cf-typegen` - Regenerate worker-configuration.d.ts after wrangler.jsonc changes
-- **No test/lint commands configured** - This project has no testing framework or linting setup
+- **Check**: `npm run check` - Run TypeScript and Go checks
+- **Go Tests**: `npm run test:go` - Run the Go unit tests
+- **E2E**: `npm run test:e2e` - Validate a running local or deployed Worker
+- **No lint command configured**
 
 ## Code Style Guidelines
 
 **TypeScript (src/):**
 - ES2021 target, ES2022 modules with Bundler resolution, strict mode enabled
-- Import order: External packages (@cloudflare, hono) → Types/interfaces → Local modules
-- Use explicit types for `Env` bindings and Hono context (`Hono<{ Bindings: Env }>`)
-- Container classes extend `Container<Env>` with properties: `defaultPort`, `sleepAfter`, `envVars`
-- Use `getContainer()` helper for Durable Object stubs, forward requests via `container.fetch(c.req.raw)`
+- Use Wrangler-generated `Env` bindings; augment secret-only bindings in `src/env.d.ts`
+- Container classes extend `Container<Env>` with properties such as `defaultPort`, `requiredPorts`, `sleepAfter`, and `envVars`
+- Use `getContainer()` for Durable Object stubs and forward the original `Request`
 
 **Go (container_src/):**
 - Standard library formatting, grouped imports (stdlib → external → internal)
@@ -22,7 +24,7 @@
 - Main: Use graceful shutdown with signal handling (SIGINT/SIGTERM) and 5s timeout context
 
 **Error Handling:**
-- TypeScript: Propagate errors via `await`, let Hono handle HTTP errors
-- Go: Return `http.Error()` with descriptive messages, use `log.Printf()` for warnings, `log.Fatal()` only in main
+- TypeScript: Return explicit JSON 404 and 405 responses before proxying
+- Go: Return structured JSON errors, use `log.Printf()` for warnings, and use `log.Fatal()` only in main
 
-**Environment Variables:** Flow from wrangler.jsonc → Worker Env → Container envVars → Go process. Never hardcode secrets in production.
+**Environment Variables:** Public values come from `wrangler.jsonc`; credentials come from Worker secrets. Both flow through Worker Env → Container envVars → Go process. Never hardcode secrets.

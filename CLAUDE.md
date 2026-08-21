@@ -4,19 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Cloudflare Workers + Containers project that demonstrates FUSE (Filesystem in Userspace) on R2. The project combines a TypeScript Worker (using Hono framework) with a Go-based container application that can mount R2 storage.
+This is a Cloudflare Workers + Containers project that demonstrates FUSE (Filesystem in Userspace) on R2. It combines a small TypeScript Worker with a Go container application.
 
 ## Architecture
 
 **Dual Runtime Model:**
-- **Worker (TypeScript)**: Entry point that handles HTTP routing and container orchestration using Hono framework
+- **Worker (TypeScript)**: Entry point that validates routes and proxies requests to one container instance
 - **Container (Go)**: Containerized application that runs inside Cloudflare's container runtime via Durable Objects
 
 **Key Components:**
-- `src/index.ts`: Main Worker entry point with Hono routes and `FUSEDemo` class definition
+- `src/index.ts`: Main Worker entry point and `FUSEDemo` class definition
 - `container_src/main.go`: Go HTTP server that runs inside the container
-- `Dockerfile`: Multi-stage build (golang:1.24-alpine -> alpine:3.21) for the container image
-- `wrangler.jsonc`: Configuration defining container bindings, Durable Object settings, and AWS credentials
+- `container_src/startup.sh`: Mounts R2 and waits for FUSE readiness before starting Go
+- `Dockerfile`: Multi-stage Go and tigrisfs build with a minimal Alpine runtime
+- `wrangler.jsonc`: Configuration defining container bindings, Durable Object settings, and public bucket settings
 
 **Container Pattern:**
 The project uses `@cloudflare/containers` with the `Container` class pattern:
@@ -26,7 +27,7 @@ The project uses `@cloudflare/containers` with the `Container` class pattern:
 - Note: Unlike the template, this implementation does not define custom lifecycle hooks
 
 **Environment Variables Flow:**
-AWS credentials flow from `wrangler.jsonc` → Worker `Env` → Container `envVars` → Go process:
+Worker secrets and public values flow from Worker `Env` → Container `envVars` → Go process:
 ```typescript
 envVars = {
   AWS_ACCESS_KEY_ID: this.env.AWS_ACCESS_KEY_ID,
@@ -38,7 +39,8 @@ envVars = {
 ```
 
 **Current Routes:**
-- `GET /` - List files in the mounted R2 bucket (uses `getContainer`)
+- `/` - List up to ten entries from the mounted bucket
+- `/health` - Container health check
 
 ## Common Commands
 
@@ -58,6 +60,12 @@ npm run deploy       # Deploy to Cloudflare Workers
 npm run cf-typegen   # Generate worker-configuration.d.ts types via wrangler types
 ```
 
+**Validation:**
+```bash
+npm run check        # TypeScript check and Go tests
+npm run test:e2e     # Test a running local or deployed Worker
+```
+
 ## Configuration Details
 
 **Container Configuration (wrangler.jsonc):**
@@ -70,15 +78,15 @@ npm run cf-typegen   # Generate worker-configuration.d.ts types via wrangler typ
 **Environment Variables (wrangler.jsonc):**
 ```jsonc
 "vars": {
-  "R2_BUCKET_NAME": "bin",
+  "R2_BUCKET_NAME": "your-bucket-name",
   "R2_BUCKET_PREFIX": "",
-  "R2_ACCOUNT_ID": "..."
+  "R2_ACCOUNT_ID": "your-account-id"
 }
 ```
-Note: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` must be set as Wrangler secrets (`wrangler secret put <NAME>`), never in `wrangler.jsonc`.
+Credentials are Worker secrets named `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 
 **Compatibility:**
-- Date: `2025-10-08`
+- Date: `2026-08-21`
 - Flags: `nodejs_compat` enabled
 - Observability: enabled
 
@@ -92,16 +100,18 @@ Note: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` must be set as Wrangler se
 ## Container Communication
 
 The Worker communicates with containers via:
-1. Get Durable Object stub via `getContainer(c.env.FUSEDemo)` helper
-2. Forward requests via `container.fetch(c.req.raw)`
+1. Get the singleton Durable Object stub via `getContainer(env.FUSEDemo)`
+2. Forward the original request via `container.fetch(request)`
 
 Environment variables are passed from the `FUSEDemo` class's `envVars` property to the Go container, accessible via `os.Getenv()`.
 
 ## Development Notes
 
-**No Testing/Linting:**
-- This project has no test framework or linting configured
-- CI: GitHub Actions workflow is configured (`.github/workflows/`)
+**Testing and linting:**
+- Go unit tests and a Node.js end-to-end check are configured
+- CI runs the type check, Go tests, ShellCheck, and a container image build
+- No general-purpose lint command is configured
+- `.github/workflows/bonk.yml` handles review comments separately
 
 **Type Generation:**
 - Run `npm run cf-typegen` after modifying `wrangler.jsonc` to regenerate `worker-configuration.d.ts`

@@ -1,21 +1,25 @@
 {
-	"name": "containers-template",
-	"description": "Build a Container-enabled Worker",
+	"name": "fuse-on-r2",
+	"description": "Mount an R2 bucket in a Cloudflare Container with FUSE",
 	"private": true,
 	"scripts": {
+		"check": "npm run typecheck && npm run test:go",
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "wrangler types",
+		"test": "npm run check",
+		"test:e2e": "node --test test/e2e.test.mjs",
+		"test:go": "cd container_src && go test ./...",
+		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
-		"@types/node": "^24.10.1",
-		"typescript": "5.9.3",
-		"wrangler": "^4.66.0"
+		"@types/node": "^26.2.0",
+		"typescript": "7.0.2",
+		"wrangler": "^4.125.0"
 	},
 	"dependencies": {
-		"@cloudflare/containers": "^0.1.0",
-		"hono": "4.12.0"
+		"@cloudflare/containers": "^0.3.7"
 	},
 	"cloudflare": {
 		"label": "Containers Starter",
