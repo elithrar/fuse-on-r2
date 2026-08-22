@@ -1,0 +1,5 @@
+**
+!Dockerfile
+!container_src/
+!container_src/**
+container_src/*_test.go

@@ -1,17 +1,8 @@
 import { Container, getContainer } from "@cloudflare/containers";
-import { Hono } from "hono";
-
-interface Env {
-  FUSEDemo: DurableObjectNamespace<FUSEDemo>;
-  AWS_ACCESS_KEY_ID: string;
-  AWS_SECRET_ACCESS_KEY: string;
-  R2_BUCKET_NAME: string;
-  R2_BUCKET_PREFIX: string;
-  R2_ACCOUNT_ID: string;
-}
 
 export class FUSEDemo extends Container<Env> {
   defaultPort = 8080;
+  pingEndpoint = "localhost/health";
   sleepAfter = "10m";
   envVars = {
     AWS_ACCESS_KEY_ID: this.env.AWS_ACCESS_KEY_ID,
@@ -22,18 +13,31 @@ export class FUSEDemo extends Container<Env> {
   };
 }
 
-const app = new Hono<{
-  Bindings: Env;
-}>();
+export default {
+  async fetch(request, env) {
+    const { pathname } = new URL(request.url);
+    if (pathname !== "/" && pathname !== "/health") {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
 
-app.get("/", async (c) => {
-  try {
-    const container = getContainer(c.env.FUSEDemo);
-    return await container.fetch(c.req.raw);
-  } catch (err) {
-    console.error("Container fetch failed:", err);
-    return c.json({ error: "Failed to reach container" }, 502);
-  }
-});
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return Response.json(
+        { error: "Method not allowed" },
+        {
+          status: 405,
+          headers: { Allow: "GET, HEAD" },
+        },
+      );
+    }
 
-export default app;
+    try {
+      return await getContainer(env.FUSEDemo).fetch(request);
+    } catch (error) {
+      console.error("Container fetch failed", error);
+      return Response.json(
+        { error: "Failed to reach container" },
+        { status: 502 },
+      );
+    }
+  },
+} satisfies ExportedHandler<Env>;

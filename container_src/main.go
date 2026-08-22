@@ -1,63 +1,97 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 )
 
+const maxEntries = 10
+
 type FileInfo struct {
 	Name  string `json:"name"`
-	IsDir bool   `json:"is_dir"`
+	IsDir bool   `json:"isDir"`
 	Size  int64  `json:"size"`
 }
 
 type FileListResponse struct {
-	BucketName string     `json:"bucket_name"`
-	MountPath  string     `json:"mount_path"`
+	BucketName string     `json:"bucketName"`
+	Prefix     string     `json:"prefix"`
+	MountPath  string     `json:"mountPath"`
 	Files      []FileInfo `json:"files"`
-	Total      int        `json:"total"`
+	Returned   int        `json:"returned"`
+	Truncated  bool       `json:"truncated"`
 }
 
-func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	var body bytes.Buffer
+	if err := json.NewEncoder(&body).Encode(value); err != nil {
+		log.Printf("Failed to encode JSON response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	if _, err := w.Write(body.Bytes()); err != nil {
+		log.Printf("Warning: failed to write response: %v", err)
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, ErrorResponse{Error: message})
+}
+
+func listFilesHandler(w http.ResponseWriter, _ *http.Request) {
 	bucketName := os.Getenv("BUCKET_NAME")
 	if bucketName == "" {
-		http.Error(w, "BUCKET_NAME environment variable not set", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "BUCKET_NAME environment variable not set")
 		return
 	}
 
-	home, err := os.UserHomeDir()
+	mountPath := os.Getenv("MOUNT_PATH")
+	if mountPath == "" {
+		writeError(w, http.StatusInternalServerError, "MOUNT_PATH environment variable not set")
+		return
+	}
+
+	directory, err := os.Open(mountPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get home directory: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to open directory %s: %v", mountPath, err))
 		return
 	}
-
-	mountPath := filepath.Join(home, "mnt", "r2", bucketName)
-
-	entries, err := os.ReadDir(mountPath)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read directory %s: %v", mountPath, err), http.StatusInternalServerError)
-		return
-	}
-
-	files := make([]FileInfo, 0, 10)
-	for i, entry := range entries {
-		if i >= 10 {
-			break
+	defer func() {
+		if err := directory.Close(); err != nil {
+			log.Printf("Warning: failed to close %s: %v", mountPath, err)
 		}
+	}()
 
+	entries, err := directory.ReadDir(maxEntries + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to read directory %s: %v", mountPath, err))
+		return
+	}
+
+	truncated := len(entries) > maxEntries
+	if truncated {
+		entries = entries[:maxEntries]
+	}
+
+	files := make([]FileInfo, 0, len(entries))
+	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
 			log.Printf("Warning: could not get info for %s: %v", entry.Name(), err)
@@ -73,21 +107,42 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 
 	response := FileListResponse{
 		BucketName: bucketName,
+		Prefix:     os.Getenv("BUCKET_PREFIX"),
 		MountPath:  mountPath,
-		Files:      files,        // preview: at most 10 entries
-		Total:      len(entries), // total count of all entries in the directory
+		Files:      files,
+		Returned:   len(files),
+		Truncated:  truncated,
 	}
 
-	data, err := json.Marshal(response)
-	if err != nil {
-		log.Printf("Failed to marshal JSON: %v", err)
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	writeJSON(w, http.StatusOK, response)
+}
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		writeError(w, http.StatusNotFound, "Not found")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if _, err := w.Write(data); err != nil {
-		log.Printf("Failed to write response: %v", err)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	listFilesHandler(w, r)
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte("ok\n")); err != nil {
+		log.Printf("Warning: failed to write health response: %v", err)
 	}
 }
 
@@ -96,22 +151,32 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	router := http.NewServeMux()
-	router.HandleFunc("/", listFilesHandler)
+	router.HandleFunc("/", rootHandler)
+	router.HandleFunc("/health", healthHandler)
 
 	server := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
+		Addr:              ":8080",
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
+	serverErrors := make(chan error, 1)
 	go func() {
-		log.Printf("Server listening on %s\n", server.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
-		}
+		log.Printf("Server listening on %s", server.Addr)
+		serverErrors <- server.ListenAndServe()
 	}()
 
-	sig := <-stop
-	log.Printf("Received signal (%s), shutting down server...", sig)
+	select {
+	case sig := <-stop:
+		log.Printf("Received signal (%s), shutting down server...", sig)
+	case err := <-serverErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server failed: %v", err)
+		}
+		return
+	}
+	signal.Stop(stop)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
