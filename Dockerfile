@@ -28,10 +28,10 @@ FROM golang:1.26-alpine3.23 AS build
 
 WORKDIR /app
 
-COPY container_src/go.mod ./
+COPY container_src/go.* ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-COPY container_src/*.go ./
+COPY container_src/ ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     mkdir -p /out \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
