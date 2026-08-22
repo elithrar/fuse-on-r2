@@ -1,4 +1,4 @@
-# Mount R2 in a Cloudflare Container with FUSE
+# Cloudflare Containers + R2-backed FUSE mounts
 
 This example mounts an R2 bucket inside a [Cloudflare Container](https://developers.cloudflare.com/containers/) with [tigrisfs](https://github.com/tigrisdata/tigrisfs). The application can then use normal filesystem APIs instead of an S3 client.
 

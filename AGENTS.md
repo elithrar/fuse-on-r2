@@ -14,7 +14,7 @@
 **TypeScript (src/):**
 - ES2021 target, ES2022 modules with Bundler resolution, strict mode enabled
 - Use Wrangler-generated `Env` bindings; augment secret-only bindings in `src/env.d.ts`
-- Container classes extend `Container<Env>` with properties such as `defaultPort`, `requiredPorts`, `sleepAfter`, and `envVars`
+- Container classes extend `Container<Env>` with properties such as `defaultPort`, `sleepAfter`, and `envVars`
 - Use `getContainer()` for Durable Object stubs and forward the original `Request`
 
 **Go (container_src/):**

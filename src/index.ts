@@ -2,7 +2,6 @@ import { Container, getContainer } from "@cloudflare/containers";
 
 export class FUSEDemo extends Container<Env> {
   defaultPort = 8080;
-  requiredPorts = [8080];
   pingEndpoint = "localhost/health";
   sleepAfter = "10m";
   envVars = {
